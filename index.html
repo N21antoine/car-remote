@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Car Remote</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #ffffff;
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: 1px;
+    }
+
+    #status {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 40px;
+      text-align: center;
+    }
+
+    #status.connected {
+      color: #4ade80;
+    }
+
+    #status.error {
+      color: #f87171;
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 100%;
+      max-width: 300px;
+    }
+
+    button {
+      width: 100%;
+      padding: 22px;
+      border: none;
+      border-radius: 16px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    button:active {
+      transform: scale(0.96);
+      opacity: 0.85;
+    }
+
+    button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    #btnConnect {
+      background: #2563eb;
+      color: white;
+      margin-bottom: 10px;
+    }
+
+    #btnLock {
+      background: #dc2626;
+      color: white;
+    }
+
+    #btnUnlock {
+      background: #16a34a;
+      color: white;
+    }
+
+    #btnClimate {
+      background: #d97706;
+      color: white;
+    }
+
+    #feedback {
+      margin-top: 30px;
+      color: #888;
+      font-size: 14px;
+      text-align: center;
+      min-height: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🚗 Car Remote</h1>
+  <div id="status">Not connected</div>
+
+  <div class="buttons">
+    <button id="btnConnect" onclick="connect()">🔵 Connect</button>
+    <button id="btnLock"    onclick="send('LOCK')"    disabled>🔒 Lock</button>
+    <button id="btnUnlock"  onclick="send('UNLOCK')"  disabled>🔓 Unlock</button>
+    <button id="btnClimate" onclick="send('CLIMATE')" disabled>❄️ Climate</button>
+  </div>
+
+  <div id="feedback"></div>
+
+<script>
+  // Must match T3 code exactly
+  const SERVICE_UUID        = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+  const CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+  let characteristic = null;
+
+  function setStatus(msg, cls = '') {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = cls;
+  }
+
+  function setFeedback(msg) {
+    document.getElementById('feedback').textContent = msg;
+    setTimeout(() => document.getElementById('feedback').textContent = '', 3000);
+  }
+
+  function setButtons(enabled) {
+    ['btnLock', 'btnUnlock', 'btnClimate'].forEach(id => {
+      document.getElementById(id).disabled = !enabled;
+    });
+  }
+
+  async function connect() {
+    try {
+      setStatus('Scanning...', '');
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ name: 'CarRemote' }],
+        optionalServices: [SERVICE_UUID]
+      });
+
+      setStatus('Connecting...', '');
+      const server  = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+      setStatus('Connected ✓', 'connected');
+      setButtons(true);
+      document.getElementById('btnConnect').textContent = '🔵 Reconnect';
+
+      device.addEventListener('gattserverdisconnected', () => {
+        setStatus('Disconnected', 'error');
+        setButtons(false);
+        characteristic = null;
+      });
+
+    } catch (err) {
+      setStatus('Connection failed', 'error');
+      console.error(err);
+    }
+  }
+
+  async function send(cmd) {
+    if (!characteristic) {
+      setFeedback('Not connected');
+      return;
+    }
+    try {
+      const encoder = new TextEncoder();
+      await characteristic.writeValue(encoder.encode(cmd));
+      setFeedback('Sent: ' + cmd);
+    } catch (err) {
+      setFeedback('Failed to send');
+      console.error(err);
+    }
+  }
+</script>
+
+</body>
+</html>
