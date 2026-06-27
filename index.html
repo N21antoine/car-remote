@@ -80,6 +80,7 @@
     #btnUnlock   { background: #16a34a; color: white; }
     #btnClimate  { background: #d97706; color: white; }
     #btnLocate   { background: #7c3aed; color: white; }
+    #btnValet    { background: #0f766e; color: white; }
 
     #feedback {
       margin-top: 30px;
@@ -115,6 +116,7 @@
     <button id="btnUnlock"  onclick="send('UNLOCK')"  disabled>🔓 Unlock</button>
     <button id="btnClimate" onclick="send('CLIMATE')" disabled>❄️ Climate</button>
     <button id="btnLocate"  onclick="send('WHERE')"   disabled>📍 Locate Car</button>
+    <button id="btnValet"   onclick="toggleValet()"   disabled>🅿️ Valet Mode: OFF</button>
   </div>
 
   <div id="feedback"></div>
@@ -126,6 +128,7 @@
   const NOTIFY_UUID         = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
   let characteristic = null;
+  let valetOn = false;
 
   function setStatus(msg, cls = '') {
     const el = document.getElementById('status');
@@ -139,7 +142,7 @@
   }
 
   function setButtons(enabled) {
-    ['btnLock', 'btnUnlock', 'btnClimate', 'btnLocate'].forEach(id => {
+    ['btnLock', 'btnUnlock', 'btnClimate', 'btnLocate', 'btnValet'].forEach(id => {
       document.getElementById(id).disabled = !enabled;
     });
   }
@@ -153,9 +156,7 @@
   function handleNotification(event) {
     const decoder = new TextDecoder();
     const msg = decoder.decode(event.target.value);
-    console.log('BLE notification:', msg);
 
-    // Expecting format: "GPS:45.1234,-73.5678"
     if (msg.startsWith('GPS:')) {
       const coords = msg.replace('GPS:', '').split(',');
       if (coords.length === 2) {
@@ -171,6 +172,22 @@
     }
   }
 
+  function toggleValet() {
+    valetOn = !valetOn;
+    const btn = document.getElementById('btnValet');
+    if (valetOn) {
+      send('VALET ON');
+      btn.textContent = '🅿️ Valet Mode: ON';
+      btn.style.background = '#b45309';
+      setFeedback('Valet mode ON — fob permanently powered');
+    } else {
+      send('VALET OFF');
+      btn.textContent = '🅿️ Valet Mode: OFF';
+      btn.style.background = '#0f766e';
+      setFeedback('Valet mode OFF');
+    }
+  }
+
   async function connect() {
     try {
       setStatus('Scanning...', '');
@@ -183,10 +200,8 @@
       const server  = await device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE_UUID);
 
-      // Write characteristic for sending commands
       characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
-      // Notify characteristic for receiving GPS data
       const notifyChar = await service.getCharacteristic(NOTIFY_UUID);
       await notifyChar.startNotifications();
       notifyChar.addEventListener('characteristicvaluechanged', handleNotification);
@@ -216,7 +231,7 @@
       if (cmd === 'WHERE') setFeedback('Requesting location...');
       const encoder = new TextEncoder();
       await characteristic.writeValue(encoder.encode(cmd));
-      if (cmd !== 'WHERE') setFeedback('Sent: ' + cmd);
+      if (cmd !== 'WHERE' && !cmd.startsWith('VALET')) setFeedback('Sent: ' + cmd);
     } catch (err) {
       setFeedback('Failed to send');
       console.error(err);
