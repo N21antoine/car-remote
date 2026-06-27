@@ -38,13 +38,8 @@
       text-align: center;
     }
 
-    #status.connected {
-      color: #4ade80;
-    }
-
-    #status.error {
-      color: #f87171;
-    }
+    #status.connected { color: #4ade80; }
+    #status.error     { color: #f87171; }
 
     .buttons {
       display: flex;
@@ -80,26 +75,11 @@
       cursor: not-allowed;
     }
 
-    #btnConnect {
-      background: #2563eb;
-      color: white;
-      margin-bottom: 10px;
-    }
-
-    #btnLock {
-      background: #dc2626;
-      color: white;
-    }
-
-    #btnUnlock {
-      background: #16a34a;
-      color: white;
-    }
-
-    #btnClimate {
-      background: #d97706;
-      color: white;
-    }
+    #btnConnect  { background: #2563eb; color: white; margin-bottom: 10px; }
+    #btnLock     { background: #dc2626; color: white; }
+    #btnUnlock   { background: #16a34a; color: white; }
+    #btnClimate  { background: #d97706; color: white; }
+    #btnLocate   { background: #7c3aed; color: white; }
 
     #feedback {
       margin-top: 30px;
@@ -107,6 +87,20 @@
       font-size: 14px;
       text-align: center;
       min-height: 20px;
+    }
+
+    #mapLink {
+      display: none;
+      margin-top: 16px;
+      padding: 14px 24px;
+      background: #1e293b;
+      border-radius: 12px;
+      color: #60a5fa;
+      font-size: 15px;
+      text-align: center;
+      text-decoration: none;
+      width: 100%;
+      max-width: 300px;
     }
   </style>
 </head>
@@ -120,14 +114,16 @@
     <button id="btnLock"    onclick="send('LOCK')"    disabled>🔒 Lock</button>
     <button id="btnUnlock"  onclick="send('UNLOCK')"  disabled>🔓 Unlock</button>
     <button id="btnClimate" onclick="send('CLIMATE')" disabled>❄️ Climate</button>
+    <button id="btnLocate"  onclick="send('WHERE')"   disabled>📍 Locate Car</button>
   </div>
 
   <div id="feedback"></div>
+  <a id="mapLink" target="_blank">📌 Open car location in Google Maps</a>
 
 <script>
-  // Must match T3 code exactly
   const SERVICE_UUID        = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
   const CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+  const NOTIFY_UUID         = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
   let characteristic = null;
 
@@ -139,13 +135,40 @@
 
   function setFeedback(msg) {
     document.getElementById('feedback').textContent = msg;
-    setTimeout(() => document.getElementById('feedback').textContent = '', 3000);
+    setTimeout(() => document.getElementById('feedback').textContent = '', 4000);
   }
 
   function setButtons(enabled) {
-    ['btnLock', 'btnUnlock', 'btnClimate'].forEach(id => {
+    ['btnLock', 'btnUnlock', 'btnClimate', 'btnLocate'].forEach(id => {
       document.getElementById(id).disabled = !enabled;
     });
+  }
+
+  function showMapLink(lat, lng) {
+    const link = document.getElementById('mapLink');
+    link.style.display = 'block';
+    link.href = `https://www.google.com/maps?q=${lat},${lng}`;
+  }
+
+  function handleNotification(event) {
+    const decoder = new TextDecoder();
+    const msg = decoder.decode(event.target.value);
+    console.log('BLE notification:', msg);
+
+    // Expecting format: "GPS:45.1234,-73.5678"
+    if (msg.startsWith('GPS:')) {
+      const coords = msg.replace('GPS:', '').split(',');
+      if (coords.length === 2) {
+        const lat = parseFloat(coords[0]);
+        const lng = parseFloat(coords[1]);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          setFeedback('Car located ✓');
+          showMapLink(lat, lng);
+        }
+      }
+    } else if (msg === 'GPS:NOFIX') {
+      setFeedback('No GPS fix yet — try again in a moment');
+    }
   }
 
   async function connect() {
@@ -159,7 +182,14 @@
       setStatus('Connecting...', '');
       const server  = await device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE_UUID);
+
+      // Write characteristic for sending commands
       characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+      // Notify characteristic for receiving GPS data
+      const notifyChar = await service.getCharacteristic(NOTIFY_UUID);
+      await notifyChar.startNotifications();
+      notifyChar.addEventListener('characteristicvaluechanged', handleNotification);
 
       setStatus('Connected ✓', 'connected');
       setButtons(true);
@@ -183,9 +213,10 @@
       return;
     }
     try {
+      if (cmd === 'WHERE') setFeedback('Requesting location...');
       const encoder = new TextEncoder();
       await characteristic.writeValue(encoder.encode(cmd));
-      setFeedback('Sent: ' + cmd);
+      if (cmd !== 'WHERE') setFeedback('Sent: ' + cmd);
     } catch (err) {
       setFeedback('Failed to send');
       console.error(err);
