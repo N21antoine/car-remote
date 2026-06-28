@@ -38,8 +38,9 @@
       text-align: center;
     }
 
-    #status.connected { color: #4ade80; }
-    #status.error     { color: #f87171; }
+    #status.connected    { color: #4ade80; }
+    #status.error        { color: #f87171; }
+    #status.reconnecting { color: #fbbf24; }
 
     .buttons {
       display: flex;
@@ -148,7 +149,7 @@
 </head>
 <body>
 
-  <h1>🚗 Clef de char</h1>
+  <h1>🚗 Car Remote</h1>
   <div id="status">Not connected</div>
 
   <div class="buttons">
@@ -173,11 +174,13 @@
   const RELOCK_SECONDS      = 30;
 
   let characteristic    = null;
+  let bleDevice         = null;
   let valetOn           = false;
   let countdownInterval = null;
+  let reconnecting      = false;
 
   function log(msg) {
-    const el = document.getElementById('debugLog');
+    const el   = document.getElementById('debugLog');
     const line = document.createElement('div');
     line.textContent = new Date().toLocaleTimeString() + ' ' + msg;
     el.appendChild(line);
@@ -294,36 +297,73 @@
     send(cmd);
   }
 
+  async function connectToDevice() {
+    const server  = await bleDevice.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+
+    characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+    const notifyChar = await service.getCharacteristic(NOTIFY_UUID);
+    await notifyChar.startNotifications();
+    notifyChar.addEventListener('characteristicvaluechanged', handleNotification);
+
+    setStatus('Connected ✓', 'connected');
+    setButtons(true);
+    reconnecting = false;
+    document.getElementById('btnConnect').textContent = '🔵 Reconnect';
+    log('Connected to CarRemote');
+  }
+
+  async function reconnect() {
+    if (reconnecting) return;
+    reconnecting = true;
+    let attempts = 0;
+
+    while (attempts < 10) {
+      try {
+        setStatus(`Reconnecting... (${attempts + 1}/10)`, 'reconnecting');
+        log('Reconnect attempt ' + (attempts + 1));
+        await new Promise(r => setTimeout(r, 1500));
+        await connectToDevice();
+        log('Reconnected successfully');
+        return;
+      } catch (err) {
+        attempts++;
+        log('Attempt ' + attempts + ' failed: ' + err.message);
+      }
+    }
+
+    setStatus('Disconnected', 'error');
+    setButtons(false);
+    characteristic = null;
+    reconnecting   = false;
+    log('Could not reconnect after 10 attempts');
+  }
+
   async function connect() {
     try {
       setStatus('Scanning...', '');
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ name: 'CarRemote' }],
-        optionalServices: [SERVICE_UUID]
-      });
 
-      setStatus('Connecting...', '');
-      const server  = await device.gatt.connect();
-      const service = await server.getPrimaryService(SERVICE_UUID);
+      if (bleDevice && bleDevice.gatt.connected) {
+        log('Already connected');
+        return;
+      }
 
-      characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+      if (!bleDevice) {
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: 'CarRemote' }],
+          optionalServices: [SERVICE_UUID]
+        });
 
-      const notifyChar = await service.getCharacteristic(NOTIFY_UUID);
-      await notifyChar.startNotifications();
-      notifyChar.addEventListener('characteristicvaluechanged', handleNotification);
+        bleDevice.addEventListener('gattserverdisconnected', () => {
+          characteristic = null;
+          stopCountdown();
+          log('Connection lost — auto reconnecting');
+          reconnect();
+        });
+      }
 
-      setStatus('Connected ✓', 'connected');
-      setButtons(true);
-      document.getElementById('btnConnect').textContent = '🔵 Reconnect';
-      log('Connected to CarRemote');
-
-      device.addEventListener('gattserverdisconnected', () => {
-        setStatus('Disconnected', 'error');
-        setButtons(false);
-        characteristic = null;
-        stopCountdown();
-        log('Disconnected');
-      });
+      await connectToDevice();
 
     } catch (err) {
       setStatus('Connection failed', 'error');
