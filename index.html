@@ -91,6 +91,8 @@
       min-height: 20px;
     }
 
+    #feedback.warning { color: #fbbf24; }
+
     #countdown {
       display: none;
       margin-top: 12px;
@@ -149,7 +151,7 @@
 </head>
 <body>
 
-  <h1>🚗 Car Remote</h1>
+  <h1>🚗 Clef de char</h1>
   <div id="status">Not connected</div>
 
   <div class="buttons">
@@ -172,13 +174,19 @@
   const CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
   const NOTIFY_UUID         = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
   const RELOCK_SECONDS      = 30;
+  const ACK_TIMEOUT_MS      = 5000;
+  const KEEPALIVE_MS        = 15000;
+  const CRITICAL_CMDS       = ['LOCK','UNLOCK','CLIMATE','VALET ON','VALET OFF'];
 
-  let characteristic    = null;
-  let bleDevice         = null;
-  let valetOn           = false;
-  let countdownInterval = null;
-  let reconnecting      = false;
+  let characteristic      = null;
+  let bleDevice           = null;
+  let valetOn             = false;
+  let countdownInterval   = null;
+  let keepaliveInterval   = null;
+  let ackTimeout          = null;
+  let reconnecting        = false;
 
+  // ── Logging ──────────────────────────────────────────────
   function log(msg) {
     const el   = document.getElementById('debugLog');
     const line = document.createElement('div');
@@ -188,18 +196,21 @@
     console.log(msg);
   }
 
+  // ── UI helpers ────────────────────────────────────────────
   function setStatus(msg, cls = '') {
     const el = document.getElementById('status');
     el.textContent = msg;
     el.className = cls;
   }
 
-  function setFeedback(msg) {
-    document.getElementById('feedback').textContent = msg;
+  function setFeedback(msg, warning = false) {
+    const el = document.getElementById('feedback');
+    el.textContent = msg;
+    el.className = warning ? 'warning' : '';
   }
 
   function setButtons(enabled) {
-    ['btnLock', 'btnUnlock', 'btnClimate', 'btnLocate', 'btnValet'].forEach(id => {
+    ['btnLock','btnUnlock','btnClimate','btnLocate','btnValet'].forEach(id => {
       document.getElementById(id).disabled = !enabled;
     });
   }
@@ -210,6 +221,7 @@
     link.href = `https://www.google.com/maps?q=${lat},${lng}`;
   }
 
+  // ── Countdown ─────────────────────────────────────────────
   function startCountdown() {
     stopCountdown();
     let remaining = RELOCK_SECONDS;
@@ -225,8 +237,7 @@
 
     countdownInterval = setInterval(() => {
       remaining--;
-      const pct = (remaining / RELOCK_SECONDS) * 100;
-      fillEl.style.width      = pct + '%';
+      fillEl.style.width      = (remaining / RELOCK_SECONDS * 100) + '%';
       countdownEl.textContent = `Auto-locking in ${remaining}s`;
       if (remaining <= 0) stopCountdown();
     }, 1000);
@@ -242,12 +253,49 @@
     document.getElementById('countdownFill').style.width  = '100%';
   }
 
+  // ── Keepalive ─────────────────────────────────────────────
+  function startKeepalive() {
+    stopKeepalive();
+    keepaliveInterval = setInterval(async () => {
+      if (characteristic) {
+        try {
+          await characteristic.writeValue(new TextEncoder().encode('PING'));
+          log('→ PING');
+        } catch (err) {
+          log('Keepalive error: ' + err.message);
+        }
+      }
+    }, KEEPALIVE_MS);
+  }
+
+  function stopKeepalive() {
+    if (keepaliveInterval) {
+      clearInterval(keepaliveInterval);
+      keepaliveInterval = null;
+    }
+  }
+
+  // ── ACK timeout ───────────────────────────────────────────
+  function startAckTimeout(cmd) {
+    clearTimeout(ackTimeout);
+    ackTimeout = setTimeout(() => {
+      setFeedback('⚠️ No confirmation — tap again to retry', true);
+      log('No ACK received for: ' + cmd);
+    }, ACK_TIMEOUT_MS);
+  }
+
+  function clearAckTimeout() {
+    clearTimeout(ackTimeout);
+    ackTimeout = null;
+  }
+
+  // ── Notifications ─────────────────────────────────────────
   function handleNotification(event) {
-    const decoder = new TextDecoder();
-    const msg = decoder.decode(event.target.value);
+    const msg = new TextDecoder().decode(event.target.value);
     log('← ' + msg);
 
     if (msg.startsWith('ACK:')) {
+      clearAckTimeout();
       const cmd = msg.replace('ACK:', '');
       const labels = {
         'UNLOCK':    '🔓 Unlocked ✓',
@@ -282,6 +330,7 @@
     }
   }
 
+  // ── Valet toggle ──────────────────────────────────────────
   function toggleValet() {
     valetOn = !valetOn;
     const cmd = valetOn ? 'VALET ON' : 'VALET OFF';
@@ -297,6 +346,7 @@
     send(cmd);
   }
 
+  // ── BLE connection ────────────────────────────────────────
   async function connectToDevice() {
     const server  = await bleDevice.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
@@ -311,12 +361,14 @@
     setButtons(true);
     reconnecting = false;
     document.getElementById('btnConnect').textContent = '🔵 Reconnect';
+    startKeepalive();
     log('Connected to CarRemote');
   }
 
   async function reconnect() {
     if (reconnecting) return;
     reconnecting = true;
+    stopKeepalive();
     let attempts = 0;
 
     while (attempts < 10) {
@@ -357,6 +409,7 @@
 
         bleDevice.addEventListener('gattserverdisconnected', () => {
           characteristic = null;
+          stopKeepalive();
           stopCountdown();
           log('Connection lost — auto reconnecting');
           reconnect();
@@ -371,6 +424,7 @@
     }
   }
 
+  // ── Send command ──────────────────────────────────────────
   async function send(cmd) {
     if (!characteristic) {
       setFeedback('Not connected');
@@ -378,9 +432,11 @@
       return;
     }
     try {
-      const encoder = new TextEncoder();
-      await characteristic.writeValue(encoder.encode(cmd));
+      await characteristic.writeValue(new TextEncoder().encode(cmd));
       log('→ ' + cmd);
+      if (CRITICAL_CMDS.includes(cmd)) {
+        startAckTimeout(cmd);
+      }
     } catch (err) {
       setFeedback('Failed to send');
       log('Send error: ' + err.message);
