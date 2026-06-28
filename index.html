@@ -130,11 +130,25 @@
       width: 100%;
       max-width: 300px;
     }
+
+    #debugLog {
+      margin-top: 20px;
+      width: 100%;
+      max-width: 300px;
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 10px;
+      font-size: 11px;
+      color: #64748b;
+      font-family: monospace;
+      max-height: 120px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
 
-  <h1>🚗 Car Remote</h1>
+  <h1>🚗 Clef de char</h1>
   <div id="status">Not connected</div>
 
   <div class="buttons">
@@ -150,6 +164,7 @@
   <div id="countdown"></div>
   <div id="countdownBar"><div id="countdownFill"></div></div>
   <a id="mapLink" target="_blank">📌 Open car location in Google Maps</a>
+  <div id="debugLog"></div>
 
 <script>
   const SERVICE_UUID        = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
@@ -157,9 +172,18 @@
   const NOTIFY_UUID         = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
   const RELOCK_SECONDS      = 30;
 
-  let characteristic  = null;
-  let valetOn         = false;
+  let characteristic    = null;
+  let valetOn           = false;
   let countdownInterval = null;
+
+  function log(msg) {
+    const el = document.getElementById('debugLog');
+    const line = document.createElement('div');
+    line.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+    console.log(msg);
+  }
 
   function setStatus(msg, cls = '') {
     const el = document.getElementById('status');
@@ -187,22 +211,20 @@
     stopCountdown();
     let remaining = RELOCK_SECONDS;
 
-    const countdownEl  = document.getElementById('countdown');
-    const barEl        = document.getElementById('countdownBar');
-    const fillEl       = document.getElementById('countdownFill');
+    const countdownEl = document.getElementById('countdown');
+    const barEl       = document.getElementById('countdownBar');
+    const fillEl      = document.getElementById('countdownFill');
 
     countdownEl.style.display = 'block';
     barEl.style.display       = 'block';
     fillEl.style.width        = '100%';
-
-    countdownEl.textContent = `Auto-locking in ${remaining}s`;
+    countdownEl.textContent   = `Auto-locking in ${remaining}s`;
 
     countdownInterval = setInterval(() => {
       remaining--;
       const pct = (remaining / RELOCK_SECONDS) * 100;
-      fillEl.style.width = pct + '%';
+      fillEl.style.width      = pct + '%';
       countdownEl.textContent = `Auto-locking in ${remaining}s`;
-
       if (remaining <= 0) stopCountdown();
     }, 1000);
   }
@@ -212,7 +234,7 @@
       clearInterval(countdownInterval);
       countdownInterval = null;
     }
-    document.getElementById('countdown').style.display  = 'none';
+    document.getElementById('countdown').style.display    = 'none';
     document.getElementById('countdownBar').style.display = 'none';
     document.getElementById('countdownFill').style.width  = '100%';
   }
@@ -220,11 +242,10 @@
   function handleNotification(event) {
     const decoder = new TextDecoder();
     const msg = decoder.decode(event.target.value);
-    console.log('BLE notification:', msg);
+    log('← ' + msg);
 
     if (msg.startsWith('ACK:')) {
       const cmd = msg.replace('ACK:', '');
-
       const labels = {
         'UNLOCK':    '🔓 Unlocked ✓',
         'LOCK':      '🔒 Locked ✓',
@@ -234,7 +255,6 @@
         'VALET OFF': '🅿️ Valet mode OFF ✓',
         'AUTO-LOCK': '🔒 Auto-locked ✓'
       };
-
       setFeedback(labels[cmd] || cmd + ' ✓');
 
       if (cmd === 'UNLOCK')    startCountdown();
@@ -261,16 +281,17 @@
 
   function toggleValet() {
     valetOn = !valetOn;
+    const cmd = valetOn ? 'VALET ON' : 'VALET OFF';
+    log('→ toggleValet sending: ' + cmd);
     const btn = document.getElementById('btnValet');
     if (valetOn) {
-      send('VALET ON');
-      btn.textContent       = '🅿️ Valet Mode: ON';
-      btn.style.background  = '#b45309';
+      btn.textContent      = '🅿️ Valet Mode: ON';
+      btn.style.background = '#b45309';
     } else {
-      send('VALET OFF');
-      btn.textContent       = '🅿️ Valet Mode: OFF';
-      btn.style.background  = '#0f766e';
+      btn.textContent      = '🅿️ Valet Mode: OFF';
+      btn.style.background = '#0f766e';
     }
+    send(cmd);
   }
 
   async function connect() {
@@ -294,31 +315,35 @@
       setStatus('Connected ✓', 'connected');
       setButtons(true);
       document.getElementById('btnConnect').textContent = '🔵 Reconnect';
+      log('Connected to CarRemote');
 
       device.addEventListener('gattserverdisconnected', () => {
         setStatus('Disconnected', 'error');
         setButtons(false);
         characteristic = null;
         stopCountdown();
+        log('Disconnected');
       });
 
     } catch (err) {
       setStatus('Connection failed', 'error');
-      console.error(err);
+      log('Error: ' + err.message);
     }
   }
 
   async function send(cmd) {
     if (!characteristic) {
       setFeedback('Not connected');
+      log('Send failed — not connected');
       return;
     }
     try {
       const encoder = new TextEncoder();
       await characteristic.writeValue(encoder.encode(cmd));
+      log('→ ' + cmd);
     } catch (err) {
       setFeedback('Failed to send');
-      console.error(err);
+      log('Send error: ' + err.message);
     }
   }
 </script>
