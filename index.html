@@ -77,6 +77,7 @@
     }
 
     #btnConnect  { background: #2563eb; color: white; margin-bottom: 10px; }
+    #btnConnect.connected { background: #dc2626; }
     #btnLock     { background: #dc2626; color: white; }
     #btnUnlock   { background: #16a34a; color: white; }
     #btnClimate  { background: #d97706; color: white; }
@@ -151,11 +152,11 @@
 </head>
 <body>
 
-  <h1>🚗 Clef de char</h1>
+  <h1>🚗 Car Remote</h1>
   <div id="status">Not connected</div>
 
   <div class="buttons">
-    <button id="btnConnect" onclick="connect()">🔵 Connect</button>
+    <button id="btnConnect" onclick="connectOrDisconnect()">🔵 Connect</button>
     <button id="btnLock"    onclick="send('LOCK')"    disabled>🔒 Lock</button>
     <button id="btnUnlock"  onclick="send('UNLOCK')"  disabled>🔓 Unlock</button>
     <button id="btnClimate" onclick="send('CLIMATE')" disabled>❄️ Climate</button>
@@ -185,6 +186,7 @@
   let keepaliveInterval   = null;
   let ackTimeout          = null;
   let reconnecting        = false;
+  let intentionalDisconnect = false;
 
   // ── Logging ──────────────────────────────────────────────
   function log(msg) {
@@ -213,6 +215,17 @@
     ['btnLock','btnUnlock','btnClimate','btnLocate','btnValet'].forEach(id => {
       document.getElementById(id).disabled = !enabled;
     });
+  }
+
+  function setConnectButton(connected) {
+    const btn = document.getElementById('btnConnect');
+    if (connected) {
+      btn.textContent = '🔴 Disconnect';
+      btn.className   = 'connected';
+    } else {
+      btn.textContent = '🔵 Connect';
+      btn.className   = '';
+    }
   }
 
   function showMapLink(lat, lng) {
@@ -359,21 +372,43 @@
 
     setStatus('Connected ✓', 'connected');
     setButtons(true);
+    setConnectButton(true);
     reconnecting = false;
-    document.getElementById('btnConnect').textContent = '🔵 Reconnect';
     startKeepalive();
     log('Connected to CarRemote');
   }
 
+  async function disconnect() {
+    try {
+      intentionalDisconnect = true;
+      stopKeepalive();
+      stopCountdown();
+      clearAckTimeout();
+      if (bleDevice && bleDevice.gatt.connected) {
+        await bleDevice.gatt.disconnect();
+      }
+      characteristic = null;
+      setStatus('Disconnected', '');
+      setButtons(false);
+      setConnectButton(false);
+      setFeedback('');
+      log('Disconnected cleanly');
+    } catch (err) {
+      log('Disconnect error: ' + err.message);
+    } finally {
+      intentionalDisconnect = false;
+    }
+  }
+
   async function reconnect() {
-    if (reconnecting) return;
+    if (reconnecting || intentionalDisconnect) return;
     reconnecting = true;
-    stopKeepalive();
     let attempts = 0;
 
     while (attempts < 10) {
       try {
         setStatus(`Reconnecting... (${attempts + 1}/10)`, 'reconnecting');
+        setConnectButton(false);
         log('Reconnect attempt ' + (attempts + 1));
         await new Promise(r => setTimeout(r, 1500));
         await connectToDevice();
@@ -387,19 +422,23 @@
 
     setStatus('Disconnected', 'error');
     setButtons(false);
+    setConnectButton(false);
     characteristic = null;
     reconnecting   = false;
     log('Could not reconnect after 10 attempts');
   }
 
+  async function connectOrDisconnect() {
+    if (bleDevice && bleDevice.gatt.connected) {
+      await disconnect();
+    } else {
+      await connect();
+    }
+  }
+
   async function connect() {
     try {
       setStatus('Scanning...', '');
-
-      if (bleDevice && bleDevice.gatt.connected) {
-        log('Already connected');
-        return;
-      }
 
       if (!bleDevice) {
         bleDevice = await navigator.bluetooth.requestDevice({
@@ -411,8 +450,11 @@
           characteristic = null;
           stopKeepalive();
           stopCountdown();
-          log('Connection lost — auto reconnecting');
-          reconnect();
+          setConnectButton(false);
+          if (!intentionalDisconnect) {
+            log('Connection lost — auto reconnecting');
+            reconnect();
+          }
         });
       }
 
@@ -420,6 +462,7 @@
 
     } catch (err) {
       setStatus('Connection failed', 'error');
+      setConnectButton(false);
       log('Error: ' + err.message);
     }
   }
