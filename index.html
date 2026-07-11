@@ -76,7 +76,7 @@
       cursor: not-allowed;
     }
 
-    #btnConnect  { background: #2563eb; color: white; margin-bottom: 10px; }
+    #btnConnect          { background: #2563eb; color: white; margin-bottom: 10px; }
     #btnConnect.connected { background: #dc2626; }
     #btnLock     { background: #dc2626; color: white; }
     #btnUnlock   { background: #16a34a; color: white; }
@@ -179,13 +179,13 @@
   const KEEPALIVE_MS        = 15000;
   const CRITICAL_CMDS       = ['LOCK','UNLOCK','CLIMATE','VALET ON','VALET OFF'];
 
-  let characteristic      = null;
-  let bleDevice           = null;
-  let valetOn             = false;
-  let countdownInterval   = null;
-  let keepaliveInterval   = null;
-  let ackTimeout          = null;
-  let reconnecting        = false;
+  let characteristic        = null;
+  let bleDevice             = null;
+  let valetOn               = false;
+  let countdownInterval     = null;
+  let keepaliveInterval     = null;
+  let ackTimeout            = null;
+  let reconnecting          = false;
   let intentionalDisconnect = false;
 
   // ── Logging ──────────────────────────────────────────────
@@ -395,9 +395,13 @@
       log('Disconnected cleanly');
     } catch (err) {
       log('Disconnect error: ' + err.message);
-    } finally {
-      intentionalDisconnect = false;
     }
+    // Wait 2 seconds before clearing flag
+    // giving gattserverdisconnected time to fire first
+    setTimeout(() => {
+      intentionalDisconnect = false;
+      log('Ready to reconnect');
+    }, 2000);
   }
 
   async function reconnect() {
@@ -454,6 +458,8 @@
           if (!intentionalDisconnect) {
             log('Connection lost — auto reconnecting');
             reconnect();
+          } else {
+            log('Intentional disconnect — not reconnecting');
           }
         });
       }
