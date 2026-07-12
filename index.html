@@ -76,7 +76,7 @@
       cursor: not-allowed;
     }
 
-    #btnConnect          { background: #2563eb; color: white; margin-bottom: 10px; }
+    #btnConnect           { background: #2563eb; color: white; margin-bottom: 10px; }
     #btnConnect.connected { background: #dc2626; }
     #btnLock     { background: #dc2626; color: white; }
     #btnUnlock   { background: #16a34a; color: white; }
@@ -152,7 +152,7 @@
 </head>
 <body>
 
-  <h1>🚗 Clef de char</h1>
+  <h1>🚗 Car Remote</h1>
   <div id="status">Not connected</div>
 
   <div class="buttons">
@@ -328,8 +328,20 @@
 
     else if (msg.startsWith('GPS:')) {
       if (msg === 'GPS:NOFIX') {
-        setFeedback('No GPS fix yet — try again in a moment');
-      } else {
+        setFeedback('No GPS fix — no last known location');
+      }
+      else if (msg.startsWith('GPS:LAST:')) {
+        const coords = msg.replace('GPS:LAST:', '').split(',');
+        if (coords.length === 2) {
+          const lat = parseFloat(coords[0]);
+          const lng = parseFloat(coords[1]);
+          if (!isNaN(lat) && !isNaN(lng)) {
+            setFeedback('⚠️ Last known location (no current fix)', true);
+            showMapLink(lat, lng);
+          }
+        }
+      }
+      else {
         const coords = msg.replace('GPS:', '').split(',');
         if (coords.length === 2) {
           const lat = parseFloat(coords[0]);
@@ -396,8 +408,6 @@
     } catch (err) {
       log('Disconnect error: ' + err.message);
     }
-    // Wait 2 seconds before clearing flag
-    // giving gattserverdisconnected time to fire first
     setTimeout(() => {
       intentionalDisconnect = false;
       log('Ready to reconnect');
