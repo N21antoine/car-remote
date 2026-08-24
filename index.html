@@ -40,15 +40,6 @@
       color: #64748b;
     }
 
-    #batteryIcon {
-      font-size: 16px;
-    }
-
-    #batteryText {
-      font-size: 13px;
-      color: #64748b;
-    }
-
     #batteryFillBar {
       width: 60px;
       height: 6px;
@@ -184,7 +175,7 @@
 </head>
 <body>
 
-  <h1>🚗 Clef de char</h1>
+  <h1>🚗 Car Remote</h1>
 
   <div id="batteryBar">
     <span id="batteryIcon">🔋</span>
@@ -274,16 +265,15 @@
     fill.style.width = pct + '%';
 
     if (pct > 60) {
-      fill.style.background = '#4ade80'; // green
+      fill.style.background = '#4ade80';
       icon.textContent = '🔋';
     } else if (pct > 20) {
-      fill.style.background = '#fbbf24'; // yellow
+      fill.style.background = '#fbbf24';
       icon.textContent = '🪫';
     } else {
-      fill.style.background = '#f87171'; // red
+      fill.style.background = '#f87171';
       icon.textContent = '🪫';
     }
-
     log('Battery: ' + pct + '%');
   }
 
@@ -434,6 +424,18 @@
     reconnecting = false;
     startKeepalive();
     log('Connected to CarRemote');
+
+    // Request battery level after connection stabilizes
+    setTimeout(async () => {
+      if (characteristic) {
+        try {
+          await characteristic.writeValue(new TextEncoder().encode('BAT'));
+          log('→ BAT request');
+        } catch (err) {
+          log('BAT request error: ' + err.message);
+        }
+      }
+    }, 4000);
   }
 
   async function disconnect() {
