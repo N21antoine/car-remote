@@ -175,7 +175,7 @@
 </head>
 <body>
 
-  <h1>🚗 Clef de char</h1>
+  <h1>🚗 Car Remote</h1>
 
   <div id="batteryBar">
     <span id="batteryIcon">🔋</span>
@@ -425,7 +425,7 @@
     startKeepalive();
     log('Connected to CarRemote');
 
-    // Request battery level after connection stabilizes
+    // Request battery level after 2 seconds
     setTimeout(async () => {
       if (characteristic) {
         try {
@@ -435,7 +435,7 @@
           log('BAT request error: ' + err.message);
         }
       }
-    }, 4000);
+    }, 2000);
   }
 
   async function disconnect() {
