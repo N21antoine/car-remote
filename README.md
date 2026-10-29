@@ -36,12 +36,12 @@ lock, unlock, and climate preconditioning.
 
 ## Repository Structure
 
-├── index.html # Web app (hosted on GitHub Pages)
-├── CarUnit/
-│ └── CarUnit.ino # Car unit firmware
-└── Handheld/
-└── Handheld.ino # Handheld unit firmware
-
+    car-remote/
+    ├── index.html          Web app (hosted on GitHub Pages)
+    ├── CarUnit/
+    │   └── CarUnit.ino     Car unit firmware
+    └── Handheld/
+        └── Handheld.ino    Handheld unit firmware
 
 ## Web App
 
